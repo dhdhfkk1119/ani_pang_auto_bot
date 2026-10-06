@@ -1,0 +1,8 @@
+# screenshots / recordings contain account info (profile screen, member number)
+shots/
+logs/
+# runtime state and caches
+refill_state.json
+__pycache__/
+*.pyc
+templates/unknown/
