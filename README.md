@@ -1,5 +1,7 @@
 # Anipang 7-poker bot
 
+자세한 인수인계 내용은 [HANDOVER.md](HANDOVER.md) 참고.
+
 Runs from the PC with the phone on USB (adb at `D:\auto_bot\scrcpy-win64-v4.1\adb.exe`). No Claude session needed.
 
 Start: double-click `start_bot.bat` (or `python run_bot.py`). Stop: close the window / Ctrl+C.
