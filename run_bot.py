@@ -32,10 +32,22 @@ def log(msg):
 
 
 def device_ready():
+    """`adb devices` -> True when a device is in the 'device' state.
+
+    Output goes to a temp file, not a pipe: when adb has to (re)start its server,
+    the daemon inherits the pipe and subprocess.run(timeout=...) then blocks forever."""
+    import tempfile
     try:
-        out = subprocess.run([adb.ADB, "devices"], capture_output=True, text=True,
-                             timeout=15).stdout
-        return any(l.endswith("\tdevice") for l in out.splitlines())
+        with tempfile.TemporaryFile("w+", encoding="utf-8", errors="ignore") as f:
+            p = subprocess.Popen([adb.ADB, "devices"], stdout=f, stderr=subprocess.DEVNULL,
+                                 stdin=subprocess.DEVNULL)
+            try:
+                p.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                return False
+            f.seek(0)
+            return any(l.endswith("	device") for l in f.read().splitlines())
     except Exception:
         return False
 

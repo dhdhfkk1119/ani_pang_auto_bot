@@ -24,22 +24,38 @@ def _cmd(*args):
     return base + list(args)
 
 
+def _run(args, **kw):
+    """subprocess.run with retries: a flaky USB link makes adb fail for a second or
+    two (exit -1 / 'device offline'); wait for the device instead of crashing."""
+    last = None
+    for attempt in range(6):
+        try:
+            return subprocess.run(_cmd(*args), check=True, **kw)
+        except subprocess.CalledProcessError as e:
+            last = e
+            time.sleep(1.0)
+            if attempt >= 1:
+                try:
+                    subprocess.run(_cmd("wait-for-device"), timeout=20)
+                except Exception:
+                    pass
+    raise last
+
+
 def screencap():
     """Return the current screen as a BGR numpy image.
 
     Raw RGBA (~0.8s) instead of PNG (~3.2s, encoded on the phone): the slow
     capture made taps land after the game's own timer had already moved on
     (auto-discard, then our discard tap opened that card instead)."""
-    raw = subprocess.run(_cmd("exec-out", "screencap"),
-                         capture_output=True, check=True).stdout
+    raw = _run(["exec-out", "screencap"], capture_output=True).stdout
     if len(raw) > 16:
         w, h, fmt = np.frombuffer(raw[:12], np.uint32)
         off = len(raw) - int(w) * int(h) * 4
         if fmt == 1 and off in (12, 16):          # RGBA_8888 (+ colorspace)
             px = np.frombuffer(raw, np.uint8, offset=off).reshape(int(h), int(w), 4)
             return cv2.cvtColor(px, cv2.COLOR_RGBA2BGR)
-    raw = subprocess.run(_cmd("exec-out", "screencap", "-p"),
-                         capture_output=True, check=True).stdout
+    raw = _run(["exec-out", "screencap", "-p"], capture_output=True).stdout
     img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise RuntimeError("screencap failed")
@@ -98,11 +114,10 @@ def tap(x, y, wait=0.0, room=False):
               flush=True)
         return
     payment_guard()
-    subprocess.run(_cmd("shell", "input", "tap", str(int(x)), str(int(y))),
-                   check=True)
+    _run(["shell", "input", "tap", str(int(x)), str(int(y))])
     if wait:
         time.sleep(wait)
 
 
 def key(code):
-    subprocess.run(_cmd("shell", "input", "keyevent", str(code)), check=True)
+    _run(["shell", "input", "keyevent", str(code)])
