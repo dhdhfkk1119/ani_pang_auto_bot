@@ -5,6 +5,7 @@ Amounts are returned in 만 units (1억 = 10000).
 from pathlib import Path
 
 import cv2
+import cvio  # noqa: F401  (unicode-safe imread/imwrite)
 import numpy as np
 
 TPL = Path(__file__).parent / "templates" / "ocr"

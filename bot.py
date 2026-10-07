@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import cv2
+import cvio  # noqa: F401  (unicode-safe imread/imwrite)
 
 import adb
 import cards
@@ -30,10 +31,12 @@ BTN_X = {"die": 260, "ping": 622, "ttadang": 985, "call": 1349,
 ROOM_TAP = (614, 641)           # 1500만 room chip in lobby
 OTHER_ROOM_TAP = (1170, 480)    # "다른 방 입장하기"
 MOVE_ROOM_TAP = (1802, 42)      # "방이동" (top right inside a room)
-ALONE_WAIT = 25                 # seconds to wait for someone before moving rooms
+ALONE_WAIT = 60                 # alone / no game starting this long -> other room
 EXIT_OK, EXIT_OUT_OF_GOLD = 0, 3
 LOGS = Path(__file__).parent / "logs"
 LOGS.mkdir(exist_ok=True)
+UNREAD = LOGS / "unreadable"     # frames where my cards could not be read (kept)
+RETAP_GAP = 2.5                  # don't re-tap a choose/open card within this time
 SEATS = {"TL": (318, 126, 459, 264), "ML": (318, 386, 459, 524),
          "TR": (1879, 126, 2020, 264), "MR": (1879, 386, 2020, 524)}
 DRY = "--dry" in sys.argv
@@ -190,18 +193,28 @@ def main():
         limit = float("inf")                  # run until stopped
     t0, last, hand_n = time.time(), None, 0
     alone_since = None
+    idle_since = None                       # in a room, no game running
     unknown_since = None
     invested, start_gold, last_n = 0, None, 0     # exposure in the current hand
     lobby_tries = 0
     nothing_n = 0
     pending_discard, open_retries = None, 0
+    tapped = {"choose": 0.0, "open": 0.0}       # last card-tap time per prompt
     while time.time() - t0 < limit:
         img = adb.screencap()
         s = state(img)
+        if s in ("loading", "lobby"):           # free-refill popup dims the lobby
+            pos = recovery.find_confirm(img)
+            if pos:
+                print("  free refill popup -> 확인", pos, flush=True)
+                adb.tap(*pos, wait=1.5)
+                continue
         if s != "lobby":
             lobby_tries = 0
         if s != "alone":
             alone_since = None
+        if s != "wait":
+            idle_since = None
         if s != "unknown":
             unknown_since = None
         if s in ("choose", "lobby", "loading"):
@@ -232,11 +245,15 @@ def main():
             # alone in the room: wait for someone; else move to a populated room
             alone_since = alone_since or time.time()
             if time.time() - alone_since > ALONE_WAIT:
-                print("  alone too long -> 방이동", flush=True)
-                adb.tap(*MOVE_ROOM_TAP, wait=3, room=True)
+                print("  alone 60s+ -> 다른 방 입장하기", flush=True)
+                adb.tap(*OTHER_ROOM_TAP, wait=3, room=True)
                 alone_since = None
             else:
                 time.sleep(1.0)
+        elif s == "choose" and time.time() - tapped["choose"] < RETAP_GAP:
+            time.sleep(0.3)                   # tapped already; wait for the screen to move on
+        elif s == "open" and time.time() - tapped["open"] < RETAP_GAP:
+            time.sleep(0.3)
         elif s == "choose":
             cs = cards.read_choose(img)
             print("  hand:", [hands.fmt(c) if c else None for c in cs])
@@ -248,7 +265,8 @@ def main():
             print("  discard", hands.fmt(cs[i]))
             if tap_card(i, "choose"):
                 pending_discard = i
-            time.sleep(0.6)
+                tapped["choose"] = time.time()
+            time.sleep(0.3)
         elif s == "open":
             dims = dim_cards(img)
             if (pending_discard is not None and dims and dims != [pending_discard]
@@ -256,6 +274,7 @@ def main():
                 print(f"  wrong card discarded (dim={dims}, want {pending_discard})"
                       " -> cancel and redo", flush=True)
                 tap_card(dims[0], "open")
+                tapped["open"] = time.time() - RETAP_GAP + 0.8
                 open_retries += 1
                 time.sleep(0.8)
                 continue
@@ -264,20 +283,32 @@ def main():
             i = keep[best_open([cs[k] for k in keep])]
             print("  open", hands.fmt(cs[i]) if cs[i] else i, flush=True)
             tap_card(i, "open")
-            time.sleep(1.0)
+            tapped["open"] = time.time()
+            time.sleep(0.3)
         elif s == "my_turn":
             cs = cards.read_cards(img, dump=False)
-            for _ in range(3):           # dealing animation -> re-read before giving up
-                if len(cs) >= 3 and None not in cs:
-                    break
-                time.sleep(0.6)
+            t_read = time.time()
+            # dealing / result animation or a popup can cover the cards for a
+            # moment -> keep re-reading for up to ~5s (the turn timer is 10s)
+            while (len(cs) < 3 or None in cs) and time.time() - t_read < 5:
+                time.sleep(0.3)
                 img = adb.screencap()
+                if state(img) != "my_turn":
+                    break
                 cs = cards.read_cards(img, dump=False)
+            if state(img) != "my_turn":
+                continue
             print("  hand:", [hands.fmt(c) if c else None for c in cs])
             if len(cs) < 3 or None in cs:
                 cards.read_cards(img)       # dump unknown glyphs for labeling
-                print("  unreadable card -> die (frame saved in shots/run)")
-                act("die")
+                UNREAD.mkdir(exist_ok=True)
+                cv2.imwrite(str(UNREAD / f"{int(time.time() * 1000)}.png"), img)
+                if score(img, "lbl_check", (985, 1055, 1290, 1410), 0.9):
+                    print("  unreadable card -> free check (frame saved in logs/unreadable)")
+                    act("call")
+                else:
+                    print("  unreadable card -> die (frame saved in logs/unreadable)")
+                    act("die")
             else:
                 is_check = score(img, "lbl_check", (985, 1055, 1290, 1410), 0.9)
                 opp = active_opponents(img)
@@ -322,9 +353,18 @@ def main():
                 unknown_since = time.time()
             time.sleep(1.0)
         else:
-            if (s == "wait" and cards.count_cards(img) == 0
+            no_game = (s == "wait" and cards.count_cards(img) == 0
                     and not any(cards.count_open(img, k) for k in cards.OPP_ANCHOR)
-                    and ocr.read_amount(img, ocr.TOTAL_BOX) == 0):
+                    and ocr.read_amount(img, ocr.TOTAL_BOX) == 0)
+            if not no_game:
+                idle_since = None
+            else:
+                idle_since = idle_since or time.time()
+                if time.time() - idle_since > ALONE_WAIT:
+                    print("  no game for 60s+ -> 방이동", flush=True)
+                    adb.tap(*MOVE_ROOM_TAP, wait=3, room=True)
+                    idle_since = None
+                    continue
                 btn = find_start_button(img)      # 게임 시작 button (someone joined)
                 if btn:
                     print("  start button ->", btn, flush=True)

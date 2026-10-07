@@ -90,6 +90,9 @@ def start_pattern(first3):
 
 
 TEN_EOK = 100000      # 10억 in 만 units
+STRONG_EQ = 0.65      # trips+ with this equity = strong: play through money limits
+BIG_BET_FRAC = 1 / 8  # a call this big (vs start gold) needs BIG_BET_EQ equity
+BIG_BET_EQ = 0.55     # replay of 69 hands: -77.8억 -> -45.9억, no winning hand cut
 
 
 # Calibration from logged hands (backtest.py): at the 7th-card bet only opponents
@@ -120,8 +123,6 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     made = hands.evaluate(mine)[0]
     if is_check:
         return "call", "free check"
-    if call and gold and call >= gold * 0.95:
-        return "die", f"call {call}만 ~ all-in (gold {gold}만)"
     raw_eq, p2 = simulate(mine, n_opp, opp_open, bet_faced=bool(call))
     equity = calibrate(raw_eq, n, made)
     fair = 1.0 / (n_opp + 1)
@@ -129,6 +130,21 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     vis = ",".join(visible_summary(opp_open))
     info = (f"n={n} opp={n_opp} made={hands.NAMES[made]} eq={equity:.2f}(raw {raw_eq:.2f}) need={need:.2f} "
             f"fair={fair:.2f} p2+={p2:.2f} vis=[{vis}]")
+    # a made monster is never folded to a big bet / all-in: folding a full house
+    # (-37억) and trips at eq 0.75 (-4.7억, -8.9억) after calling the smaller
+    # bets cost more than every other leak together (log 2026-10-07)
+    strong = made >= hands.FULL_HOUSE or (made >= hands.TRIPLE and equity >= STRONG_EQ)
+    if strong:
+        if equity >= need:
+            return "call", info + " | strong made hand: ignore money limits"
+        return "die", info + " | strong hand but equity below pot odds"
+    if call and gold and call >= gold * 0.95:
+        return "die", info + f" | call {call}만 ~ all-in (gold {gold}만)"
+    # opponents escalate (0.75억 -> 3.75억 -> 18.75억): calling the middle bet with
+    # a weak hand only to fold the big one bled ~100억. Stop at the first big bet.
+    base = start_gold or gold
+    if call and base and n >= 5 and call >= base * BIG_BET_FRAC and equity < BIG_BET_EQ:
+        return "die", info + f" | big bet {call}만 >= 1/{round(1 / BIG_BET_FRAC)} of {base}만 with weak hand"
     if call and gold and call >= gold / 4:
         if n <= 5 or equity < 0.8:
             return "die", info + f" | call {call}만 >= 1/4 of gold {gold}만"

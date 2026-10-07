@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 import cv2
+import cvio  # noqa: F401  (unicode-safe imread/imwrite)
 
 import adb
 

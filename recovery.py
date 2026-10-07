@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 import cv2
+import cvio  # noqa: F401  (unicode-safe imread/imwrite)
 
 import adb
 
@@ -41,15 +42,25 @@ def _set_refills(n):
     STATE.write_text(json.dumps({"date": _today(), "used": n}))
 
 
+def _best(img, name, roi):
+    x0, y0, x1, y1 = roi
+    t = cv2.imread(str(UI / name))
+    if t is None or img is None or img.shape[0] < y1 or img.shape[1] < x1:
+        return 0.0, None
+    res = cv2.matchTemplate(img[y0:y1, x0:x1], t, cv2.TM_CCOEFF_NORMED)
+    _, mx, _, loc = cv2.minMaxLoc(res)
+    return mx, (x0 + loc[0] + t.shape[1] // 2, y0 + loc[1] + t.shape[0] // 2)
+
+
 def find_confirm(img, thr=0.85):
-    """Center (x,y) of a 확인 button, if a template for it is known."""
-    for p in sorted(UI.glob("confirm_refill*.png")):   # only the 돈 받기 popup
-        t = cv2.imread(str(p))
-        res = cv2.matchTemplate(img, t, cv2.TM_CCOEFF_NORMED)
-        _, mx, _, loc = cv2.minMaxLoc(res)
-        if mx >= thr:
-            return loc[0] + t.shape[1] // 2, loc[1] + t.shape[0] // 2
-    return None
+    """Center (x,y) of the 확인 button of the free-refill popup ("실망하지 마세요!
+    무료로 포커머니가 충전됐습니다!"), only when BOTH the popup title and the
+    button match -> no other 확인 (shop / purchase dialogs) is ever pressed."""
+    title, _ = _best(img, "confirm_refill_title.png", (600, 150, 1750, 480))
+    if title < thr:
+        return None
+    btn, pos = _best(img, "confirm_refill_btn.png", (1000, 620, 1650, 900))
+    return pos if btn >= thr else None
 
 
 def press_confirm(img=None):

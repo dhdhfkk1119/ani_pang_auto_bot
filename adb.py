@@ -3,9 +3,19 @@ import subprocess
 import time
 
 import cv2
+import cvio  # noqa: F401  (unicode-safe imread/imwrite)
 import numpy as np
 
-ADB = r"D:\auto_bot\scrcpy-win64-v4.1\adb.exe"
+import os
+import shutil
+
+_ADB_CANDIDATES = [
+    os.environ.get("ADB_PATH", ""),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scrcpy-win64-v5.0", "adb.exe"),
+    r"D:\auto_bot\scrcpy-win64-v4.1\adb.exe",
+    shutil.which("adb") or "",
+]
+ADB = next((p for p in _ADB_CANDIDATES if p and os.path.isfile(p)), "adb")
 SERIAL = None  # None -> the only connected device
 
 
@@ -15,7 +25,19 @@ def _cmd(*args):
 
 
 def screencap():
-    """Return the current screen as a BGR numpy image."""
+    """Return the current screen as a BGR numpy image.
+
+    Raw RGBA (~0.8s) instead of PNG (~3.2s, encoded on the phone): the slow
+    capture made taps land after the game's own timer had already moved on
+    (auto-discard, then our discard tap opened that card instead)."""
+    raw = subprocess.run(_cmd("exec-out", "screencap"),
+                         capture_output=True, check=True).stdout
+    if len(raw) > 16:
+        w, h, fmt = np.frombuffer(raw[:12], np.uint32)
+        off = len(raw) - int(w) * int(h) * 4
+        if fmt == 1 and off in (12, 16):          # RGBA_8888 (+ colorspace)
+            px = np.frombuffer(raw, np.uint8, offset=off).reshape(int(h), int(w), 4)
+            return cv2.cvtColor(px, cv2.COLOR_RGBA2BGR)
     raw = subprocess.run(_cmd("exec-out", "screencap", "-p"),
                          capture_output=True, check=True).stdout
     img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)

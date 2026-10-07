@@ -7,6 +7,7 @@ the last one. Unknown glyphs are dumped to templates/unknown/ for labeling.
 from pathlib import Path
 
 import cv2
+import cvio  # noqa: F401  (unicode-safe imread/imwrite)
 import numpy as np
 
 import hands
@@ -54,6 +55,12 @@ def _glyph(img, box, left):
     return cv2.resize(ink, SIZE, interpolation=cv2.INTER_AREA), red
 
 
+def _solid(g):
+    """Glyph that is ink almost everywhere = the card is covered/dimmed (popup,
+    dealing or result animation), not an unknown glyph -> never dump it."""
+    return g is not None and g.mean() > 200
+
+
 def load_templates(kind):
     out = {}
     for p in (TPL / kind).glob("*.png"):
@@ -84,7 +91,8 @@ def read_cards(img, thr=0.88, dump=True):
             s, ss = _match(sg, st)
             if r and s and rs >= thr and ss >= thr:
                 card = (RANKS[r], s)
-        if card is None and dump and rg is not None and sg is not None:
+        if (card is None and dump and rg is not None and sg is not None
+                and not _solid(rg) and not _solid(sg)):
             d = TPL / "unknown"
             d.mkdir(parents=True, exist_ok=True)
             k = int(np.random.randint(1 << 30))
@@ -128,7 +136,7 @@ def read_choose(img, thr=0.88, dump=True):
             s, ss = _match(sg, st)
             if r and s and rs >= thr and ss >= thr:
                 card = (RANKS[r], s)
-            elif dump:
+            elif dump and not _solid(rg) and not _solid(sg):
                 d = TPL / "unknown"
                 d.mkdir(parents=True, exist_ok=True)
                 k = int(np.random.randint(1 << 30))
