@@ -86,7 +86,11 @@ def read_amount(img, box, thr=0.80, thr_seg=150, tpl_dir=None, rel=0.71):
             break
     if cur and not seen and int(cur) >= 10000:
         return int(cur) // 10000       # plain gold >= 1만 (not seen in practice)
-    return total if (seen or cur == "0" or cur == "") else total
+    if seen:
+        return total
+    if cur == "0":
+        return 0                       # "0 골드" (e.g. everybody checked -> 콜 is free)
+    return None                        # nothing readable: never mistake it for 0
 
 
 def fmt(v):

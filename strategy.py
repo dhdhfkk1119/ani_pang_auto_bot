@@ -93,6 +93,7 @@ TEN_EOK = 100000      # 10억 in 만 units
 STRONG_EQ = 0.65      # trips+ with this equity = strong: play through money limits
 BIG_BET_FRAC = 1 / 8  # a call this big (vs start gold) needs BIG_BET_EQ equity
 BIG_BET_EQ = 0.55     # replay of 69 hands: -77.8억 -> -45.9억, no winning hand cut
+TWO_PAIR_7TH_MIN = 0.45  # replay of 718 hands: with no start-pattern calls +279억
 
 
 # Calibration from logged hands (backtest.py): at the 7th-card bet only opponents
@@ -121,8 +122,9 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     The user's start-hand conditions and money limits stay as extra rules."""
     n = len(mine)
     made = hands.evaluate(mine)[0]
-    if is_check:
-        return "call", "free check"
+    if is_check or call == 0:
+        # 콜 for "0 골드" is as free as 체크: 96 such spots were folded (log 10-07~08)
+        return "call", "free check" if is_check else "free call (0 골드)"
     raw_eq, p2 = simulate(mine, n_opp, opp_open, bet_faced=bool(call))
     equity = calibrate(raw_eq, n, made)
     fair = 1.0 / (n_opp + 1)
@@ -133,7 +135,10 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     # a made monster is never folded to a big bet / all-in: folding a full house
     # (-37억) and trips at eq 0.75 (-4.7억, -8.9억) after calling the smaller
     # bets cost more than every other leak together (log 2026-10-07)
-    strong = made >= hands.FULL_HOUSE or (made >= hands.TRIPLE and equity >= STRONG_EQ)
+    # trips+ that beat the pot odds also play through the money limits: trips
+    # called at the 7th card won 59%, while 5 trips folded to big bets lost 119억
+    strong = (made >= hands.FULL_HOUSE or (made >= hands.TRIPLE and equity >= STRONG_EQ)
+              or (made >= hands.TRIPLE and equity >= need * 1.15))
     if strong:
         if equity >= need:
             return "call", info + " | strong made hand: ignore money limits"
@@ -155,15 +160,17 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
                               f"start gold {start_gold}만")
     if call and call >= TEN_EOK and made < hands.TWO_PAIR and equity < 0.7:
         return "die", info + f" | call {call}만 >= 10억 without two pair"
+    # two pair at the 7th card was over-estimated: eq 0.3-0.4 won 7/34 (-136억)
+    if n >= 7 and made == hands.TWO_PAIR and equity < TWO_PAIR_7TH_MIN:
+        return "die", info + f" | two pair at 7th needs eq >= {TWO_PAIR_7TH_MIN}"
     if n <= 5:
-        pat = start_pattern(mine[:3])
         if equity >= need * 1.05:
             return "call", info + " | equity beats pot odds"
-        if pat:
-            return "call", info + f" | start: {pat}"
+        # start patterns (3 suited / connected ...) no longer override the pot
+        # odds: 112 such hands won 7 times and lost 207억 (log 10-07~08)
         if made >= hands.PAIR:
             return "call", info + " | pair+"
-        return "die", info + " | equity below pot odds, no start pattern/pair"
+        return "die", info + " | equity below pot odds, no pair"
     if equity >= need * 1.15 and (made >= hands.PAIR or p2 >= 0.25):
         return "call", info + " | equity beats pot odds"
     return "die", info + " | equity below pot odds"

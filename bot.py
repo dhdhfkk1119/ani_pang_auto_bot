@@ -316,6 +316,15 @@ def main():
                 call_amt = 0 if is_check else ocr.read_amount(img, ocr.CALL_BOX)
                 gold = ocr.read_balance(img)
                 pot = ocr.read_amount(img, ocr.TOTAL_BOX)
+                for _ in range(2):        # flying chips can cover the numbers -> re-read
+                    if call_amt is not None and pot is not None:
+                        break
+                    time.sleep(0.3)
+                    img2 = adb.screencap()
+                    if call_amt is None:
+                        call_amt = ocr.read_amount(img2, ocr.CALL_BOX)
+                    if pot is None:
+                        pot = ocr.read_amount(img2, ocr.TOTAL_BOX)
                 print(f"  call {ocr.fmt(call_amt)} | pot {ocr.fmt(pot)} | gold {ocr.fmt(gold)}", flush=True)
                 if len(cs) < last_n:                      # missed the hand start
                     invested, start_gold = 0, None
