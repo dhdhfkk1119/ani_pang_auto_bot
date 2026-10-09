@@ -90,6 +90,12 @@ def start_pattern(first3):
 
 
 TEN_EOK = 100000      # 10억 in 만 units
+# equity must beat the pot-odds need by this factor (per street). The need only
+# counts the CURRENT call, not the escalating bets that follow (tune_margin.py).
+# 2.0 chosen by tune_margin.py: on 684 logged hands it beat the old 1.05/1.15 in all three
+# thirds of the data (real -> replayed: -88.9->-15.7, -61.6->+81.4, +57.5->+121.3)
+MARGIN = {5: 2.0, 6: 2.0, 7: 2.0}
+PAIR_FALLBACK = False  # n<=5: calling any pair+ below the margin lost money (margin<1: 139 calls, -87억)
 STRONG_EQ = 0.65      # trips+ with this equity = strong: play through money limits
 BIG_BET_FRAC = 1 / 8  # a call this big (vs start gold) needs BIG_BET_EQ equity
 BIG_BET_EQ = 0.55     # replay of 69 hands: -77.8억 -> -45.9억, no winning hand cut
@@ -164,13 +170,13 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     if n >= 7 and made == hands.TWO_PAIR and equity < TWO_PAIR_7TH_MIN:
         return "die", info + f" | two pair at 7th needs eq >= {TWO_PAIR_7TH_MIN}"
     if n <= 5:
-        if equity >= need * 1.05:
+        if equity >= need * MARGIN[5]:
             return "call", info + " | equity beats pot odds"
         # start patterns (3 suited / connected ...) no longer override the pot
         # odds: 112 such hands won 7 times and lost 207억 (log 10-07~08)
-        if made >= hands.PAIR:
+        if PAIR_FALLBACK and made >= hands.PAIR:
             return "call", info + " | pair+"
         return "die", info + " | equity below pot odds, no pair"
-    if equity >= need * 1.15 and (made >= hands.PAIR or p2 >= 0.25):
+    if equity >= need * MARGIN[min(n, 7)] and (made >= hands.PAIR or p2 >= 0.25):
         return "call", info + " | equity beats pot odds"
     return "die", info + " | equity below pot odds"

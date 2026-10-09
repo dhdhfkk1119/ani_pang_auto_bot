@@ -119,5 +119,21 @@ def tap(x, y, wait=0.0, room=False):
         time.sleep(wait)
 
 
+def wake():
+    """Screen off / dimmed -> wake it (no PIN handling)."""
+    _run(["shell", "input", "keyevent", "224"])        # KEYCODE_WAKEUP
+
+
+def game_in_front():
+    return GAME_PKG in focus()
+
+
+def start_game():
+    """Bring the game to the front (after a crash / the app being left)."""
+    payment_guard()
+    _run(["shell", "monkey", "-p", GAME_PKG, "-c", "android.intent.category.LAUNCHER", "1"],
+         capture_output=True)
+
+
 def key(code):
     _run(["shell", "input", "keyevent", str(code)])

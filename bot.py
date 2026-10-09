@@ -210,9 +210,20 @@ def main():
     nothing_n = 0
     pending_discard, open_retries = None, 0
     tapped = {"choose": 0.0, "open": 0.0}       # last card-tap time per prompt
+    last_beat, black_since, last_wake = time.time(), None, 0.0
     while time.time() - t0 < limit:
         img = adb.screencap()
+        pos = recovery.find_reconnect(img)       # "서버 연결이 불안정합니다" popup
+        if pos:
+            print("  server unstable popup -> 다시 연결", pos, flush=True)
+            adb.tap(*pos, wait=3, room=True)
+            continue
         s = state(img)
+        if time.time() - last_beat > 60:         # the supervisor reads silence as a hang
+            print(f"  [alive] {s}", flush=True)
+            last_beat = time.time()
+        if s != "loading":
+            black_since = None
         if s in ("loading", "lobby"):           # free-refill popup dims the lobby
             pos = recovery.find_confirm(img)
             if pos:
@@ -349,6 +360,17 @@ def main():
                 log_decision(cs, opp, call_amt, gold, move, why)
                 act("call" if move == "call" else "die")
             time.sleep(2)
+        elif s == "loading":
+            # black screen: loading a room (short) or the phone screen is off / the
+            # game left the foreground (long) -> wake it up and bring the game back
+            black_since = black_since or time.time()
+            if time.time() - black_since > 40 and time.time() - last_wake > 30:
+                print("  black screen 40s+ -> wake / start game", flush=True)
+                adb.wake()
+                if not adb.game_in_front():
+                    adb.start_game()
+                last_wake = time.time()
+            time.sleep(1.0)
         elif s == "unknown":
             # not a room / lobby / loading screen (shop, event popup, ...): never tap
             # anything; after a while press BACK once to close it.
