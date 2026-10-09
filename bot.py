@@ -31,7 +31,10 @@ BTN_X = {"die": 260, "ping": 622, "ttadang": 985, "call": 1349,
 ROOM_TAP = (614, 641)           # 1500만 room chip in lobby
 OTHER_ROOM_TAP = (1170, 480)    # "다른 방 입장하기"
 MOVE_ROOM_TAP = (1802, 42)      # "방이동" (top right inside a room)
-ALONE_WAIT = 60                 # alone / no game starting this long -> other room
+ALONE_WAIT = 15                 # alone / no game this long -> other room. The server
+                                # kicks players idle in an empty room (장시간 자리비움)
+START_TAP = (1265, 760)         # centre of my seat panel, where 시작하기 shows up
+START_GAP = 3.5                 # seconds between start-button attempts
 EXIT_OK, EXIT_OUT_OF_GOLD = 0, 3
 LOGS = Path(__file__).parent / "logs"
 LOGS.mkdir(exist_ok=True)
@@ -70,7 +73,10 @@ def state(img):
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     if g.mean() < 25:
         return "loading"
-    if score(img, "lobby_chip", (400, 880, 380, 850)):
+    if score(img, "title_logo", (100, 500, 800, 1500), 0.85):
+        return "title"            # loading / title screen after a kick: just wait
+    if (score(img, "lobby_tabs", (300, 430, 650, 1700), 0.85)
+            or score(img, "lobby_chip", (400, 880, 380, 850))):
         return "lobby"
     if score(img, "choose", (920, 1030, 900, 1450)):
         return "choose"
@@ -211,14 +217,22 @@ def main():
     pending_discard, open_retries = None, 0
     tapped = {"choose": 0.0, "open": 0.0}       # last card-tap time per prompt
     last_beat, black_since, last_wake = time.time(), None, 0.0
+    last_start_try = 0.0
+    adb.stay_awake()                         # never let the phone lock (10 min timeout)
     while time.time() - t0 < limit:
         img = adb.screencap()
+        pos = recovery.find_afk(img)             # "장시간 자리비움 ... 타이틀로 이동" popup
+        if pos:
+            print("  AFK popup -> 확인", pos, flush=True)
+            adb.tap(*pos, wait=4, room=True)
+            continue
         pos = recovery.find_reconnect(img)       # "서버 연결이 불안정합니다" popup
         if pos:
             print("  server unstable popup -> 다시 연결", pos, flush=True)
             adb.tap(*pos, wait=3, room=True)
             continue
         s = state(img)
+        adb.keepalive()
         if time.time() - last_beat > 60:         # the supervisor reads silence as a hang
             print(f"  [alive] {s}", flush=True)
             last_beat = time.time()
@@ -360,6 +374,8 @@ def main():
                 log_decision(cs, opp, call_amt, gold, move, why)
                 act("call" if move == "call" else "die")
             time.sleep(2)
+        elif s == "title":
+            time.sleep(2.0)                  # game is loading; touching/BACK here is harmful
         elif s == "loading":
             # black screen: loading a room (short) or the phone screen is off / the
             # game left the foreground (long) -> wake it up and bring the game back
@@ -394,23 +410,29 @@ def main():
                 unknown_since = time.time()
             time.sleep(1.0)
         else:
+            total = ocr.read_amount(img, ocr.TOTAL_BOX) if s == "wait" else None
             no_game = (s == "wait" and cards.count_cards(img) == 0
-                    and not any(cards.count_open(img, k) for k in cards.OPP_ANCHOR)
-                    and ocr.read_amount(img, ocr.TOTAL_BOX) == 0)
+                       and not any(cards.count_open(img, k) for k in cards.OPP_ANCHOR)
+                       and total in (0, None))
             if not no_game:
                 idle_since = None
             else:
                 idle_since = idle_since or time.time()
                 if time.time() - idle_since > ALONE_WAIT:
-                    print("  no game for 60s+ -> 방이동", flush=True)
+                    print(f"  no game for {ALONE_WAIT}s+ -> 방이동", flush=True)
                     adb.tap(*MOVE_ROOM_TAP, wait=3, room=True)
                     idle_since = None
                     continue
-                btn = find_start_button(img)      # 게임 시작 button (someone joined)
-                if btn:
+                if time.time() - last_start_try > START_GAP:
+                    # somebody joined -> 시작하기 shows on my seat panel: press it at once
+                    btn = find_start_button(img) or START_TAP
                     print("  start button ->", btn, flush=True)
-                    cv2.imwrite(str(LOGS / "start_button_last.png"), img)
-                    adb.tap(*btn, wait=2, room=True)
+                    idle_dir = LOGS / "idle"
+                    idle_dir.mkdir(exist_ok=True)
+                    if len(list(idle_dir.glob("*.png"))) < 20:
+                        cv2.imwrite(str(idle_dir / f"{int(time.time())}.png"), img)
+                    adb.tap(*btn, wait=1.5, room=True)
+                    last_start_try = time.time()
                     continue
             pos = recovery.find_confirm(img)      # 돈 받기 등 확인 팝업
             if pos:

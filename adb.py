@@ -114,9 +114,31 @@ def tap(x, y, wait=0.0, room=False):
               flush=True)
         return
     payment_guard()
+    _last_input[0] = time.time()
     _run(["shell", "input", "tap", str(int(x)), str(int(y))])
     if wait:
         time.sleep(wait)
+
+
+_last_input = [time.time()]
+
+
+def stay_awake():
+    """Keep the screen on while plugged in (no 10 min lock). Reversible:
+    `adb shell svc power stayon false`."""
+    try:
+        _run(["shell", "svc", "power", "stayon", "true"])
+    except Exception:
+        pass
+
+
+def keepalive(gap=180):
+    """A harmless WAKEUP key if nothing was sent to the phone for `gap` seconds."""
+    if time.time() - _last_input[0] > gap:
+        try:
+            _run(["shell", "input", "keyevent", "224"])
+        except Exception:
+            pass
 
 
 def wake():

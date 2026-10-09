@@ -63,6 +63,16 @@ def find_confirm(img, thr=0.85):
     return pos if btn >= thr else None
 
 
+def find_afk(img, thr=0.85):
+    """'장시간 자리비움으로 인해 타이틀로 이동합니다' popup -> its 확인 button.
+    The message AND the button must match."""
+    msg, _ = _best(img, "afk_msg.png", (700, 300, 1640, 640))
+    if msg < thr:
+        return None
+    btn, pos = _best(img, "reward_ok_btn.png", (960, 640, 1380, 840))
+    return pos if btn >= thr else None
+
+
 def find_reconnect(img, thr=0.85):
     """Center of '다시 연결' on the 'server connection unstable' popup. Both the
     message and the button must match, so no other dialog is ever pressed."""
