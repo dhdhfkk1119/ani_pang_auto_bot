@@ -73,6 +73,38 @@ def find_afk(img, thr=0.85):
     return pos if btn >= thr else None
 
 
+LAST_GOLD = ROOT / "logs" / "last_gold.txt"
+
+
+def save_last_gold(g):
+    """Remember the last gold read in a room (만 units) across restarts."""
+    if g:
+        try:
+            LAST_GOLD.write_text(str(int(g)))
+        except Exception:
+            pass
+
+
+def last_gold():
+    try:
+        return int(LAST_GOLD.read_text())
+    except Exception:
+        return None
+
+
+def find_gift_popup(img, thr=0.85):
+    """'보관함에 선물이 있어요. 확인하러 가시겠어요? [다음에] [보관함 가기]' on the lobby.
+    Returns {'next': (x,y), 'go': (x,y)} or None."""
+    msg, _ = _best(img, "gift_popup_msg.png", (700, 300, 1640, 640))
+    if msg < thr:
+        return None
+    n_sc, n_pos = _best(img, "gift_popup_next.png", (760, 640, 1200, 840))
+    g_sc, g_pos = _best(img, "gift_popup_go.png", (1120, 640, 1580, 840))
+    if n_sc < thr or g_sc < thr:
+        return None
+    return {"next": n_pos, "go": g_pos}
+
+
 def find_reconnect(img, thr=0.85, btn_only_thr=0.92):
     """Center of '다시 연결' on a connection popup ("서버 연결이 일시적으로 불안정합니다",
     "네트워크 연결이 끊겼습니다", ...). Message + button must match; a very clean match

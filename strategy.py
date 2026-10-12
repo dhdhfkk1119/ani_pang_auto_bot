@@ -102,6 +102,15 @@ TEN_EOK = 100000      # 10억 in 만 units
 MARGIN = {5: 1.05, 6: 1.3, 7: 1.5}
 PAIR_FALLBACK = False  # n<=5: calling any pair+ below the margin lost money (margin<1: 139 calls, -87억)
 STRONG_EQ = 0.65      # trips+ with this equity = strong: play through money limits
+STRONG_NEED_CLAUSE = True   # trips+ also 'strong' when equity >= need*1.15
+# Hard caps that even a 'strong' hand must obey (None = off). Live 10-13: trips called
+# 39.8억 into an 86억 pot and 19.2억 more = -58억, trips 27.9억 = -28억, flush 17.2억
+# = -17억 (all "strong made hand: ignore money limits"); gold 49억 -> 0 in ~1h.
+HARD_CALL_FRAC = 1 / 2      # one call >= this fraction of current gold needs HARD_EQ
+HARD_EXPOSURE_FRAC = 0.5    # hand exposure >= this fraction of start gold needs HARD_EQ
+HARD_EQ = 0.85
+# tune_strong.py: on 1223 earlier hands these caps cost ~42억 (one big winning hand is
+# folded) but they stop the three -28/-58/-17억 calls of 10-13 (gold 49억 -> 0).
 BIG_BET_FRAC = 1 / 8  # a call this big (vs start gold) needs BIG_BET_EQ equity
 BIG_BET_EQ = 0.55     # replay of 69 hands: -77.8억 -> -45.9억, no winning hand cut
 TWO_PAIR_7TH_MIN = 0.45  # replay of 718 hands: with no start-pattern calls +279억
@@ -148,8 +157,14 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     # bets cost more than every other leak together (log 2026-10-07)
     # trips+ that beat the pot odds also play through the money limits: trips
     # called at the 7th card won 59%, while 5 trips folded to big bets lost 119억
+    if HARD_CALL_FRAC and call and gold and call >= gold * HARD_CALL_FRAC and equity < HARD_EQ:
+        return "die", info + f" | hard cap: call {call}만 >= {HARD_CALL_FRAC:.2f} of gold {gold}만"
+    if (HARD_EXPOSURE_FRAC and call and start_gold
+            and invested + call >= start_gold * HARD_EXPOSURE_FRAC and equity < HARD_EQ):
+        return "die", info + (f" | hard cap: hand exposure {invested + call}만 >= "
+                              f"{HARD_EXPOSURE_FRAC:.2f} of start gold {start_gold}만")
     strong = (made >= hands.FULL_HOUSE or (made >= hands.TRIPLE and equity >= STRONG_EQ)
-              or (made >= hands.TRIPLE and equity >= need * 1.15))
+              or (STRONG_NEED_CLAUSE and made >= hands.TRIPLE and equity >= need * 1.15))
     if strong:
         if equity >= need:
             return "call", info + " | strong made hand: ignore money limits"

@@ -238,6 +238,14 @@ def main():
     adb.stay_awake()                         # never let the phone lock (10 min timeout)
     while time.time() - t0 < limit:
         img = adb.screencap()
+        gp = recovery.find_gift_popup(img)       # "보관함에 선물이 있어요" [다음에] [보관함 가기]
+        if gp:
+            lg = recovery.last_gold()
+            low = lg is None or lg < 30000       # unknown or < 3억 -> out of gold: go claim
+            btn = gp["go"] if low else gp["next"]
+            print(f"  gift popup (last gold {lg}만) -> {'보관함 가기' if low else '다음에'}", flush=True)
+            adb.tap(*btn, wait=3, room=True)
+            continue
         pos = recovery.find_afk(img)             # "장시간 자리비움 ... 타이틀로 이동" popup
         if pos:
             print("  AFK popup -> 확인", pos, flush=True)
@@ -374,6 +382,7 @@ def main():
                 print("  opp open:", [[hands.fmt(c) for c in o] for o in opp])
                 call_amt = 0 if is_check else ocr.read_amount(img, ocr.CALL_BOX)
                 gold = ocr.read_balance(img)
+                recovery.save_last_gold(gold)
                 pot = ocr.read_amount(img, ocr.TOTAL_BOX)
                 for _ in range(2):        # flying chips can cover the numbers -> re-read
                     if call_amt is not None and pot is not None:
