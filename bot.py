@@ -215,6 +215,7 @@ def main():
     lobby_tries = 0
     nothing_n = 0
     pending_discard, open_retries = None, 0
+    hand_cache = None                       # my cards as last read in this hand
     tapped = {"choose": 0.0, "open": 0.0}       # last card-tap time per prompt
     last_beat, black_since, last_wake = time.time(), None, 0.0
     last_start_try = 0.0
@@ -254,6 +255,7 @@ def main():
             unknown_since = None
         if s in ("choose", "lobby", "loading"):
             invested, start_gold = 0, None            # a new hand starts
+            hand_cache = None
         if s == "my_turn":
             pending_discard, open_retries = None, 0
         if s != last:
@@ -334,6 +336,11 @@ def main():
             if state(img) != "my_turn":
                 continue
             print("  hand:", [hands.fmt(c) if c else None for c in cs])
+            if (len(cs) < 3 or None in cs) and hand_cache:
+                # cards covered (e.g. the profile tooltip "이 방의 전적") -> decide
+                # with the cards already read in this hand instead of a blind die
+                print("  cards covered -> using last read of this hand", flush=True)
+                cs = list(hand_cache)
             if len(cs) < 3 or None in cs:
                 cards.read_cards(img)       # dump unknown glyphs for labeling
                 UNREAD.mkdir(exist_ok=True)
@@ -345,6 +352,7 @@ def main():
                     print("  unreadable card -> die (frame saved in logs/unreadable)")
                     act("die")
             else:
+                hand_cache = list(cs)
                 is_check = score(img, "lbl_check", (985, 1055, 1290, 1410), 0.9)
                 opp = active_opponents(img)
                 print("  opp open:", [[hands.fmt(c) for c in o] for o in opp])

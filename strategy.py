@@ -94,7 +94,12 @@ TEN_EOK = 100000      # 10억 in 만 units
 # counts the CURRENT call, not the escalating bets that follow (tune_margin.py).
 # 2.0 chosen by tune_margin.py: on 684 logged hands it beat the old 1.05/1.15 in all three
 # thirds of the data (real -> replayed: -88.9->-15.7, -61.6->+81.4, +57.5->+121.3)
-MARGIN = {5: 2.0, 6: 2.0, 7: 2.0}
+# 2026-10-12: 2.0 was replaced. Live it folded 90% of hands (49 hands: 1 win,
+# -16.6억, 37 folded at the 5th card without one bet). Replaying 876 hands on the
+# call decisions alone: 2.0 = +275억 / 98 wins, 1.05-1.15-1.15 = +292억 / 160 wins,
+# 1.05-1.3-1.5 = +314억 / 156 wins. Differences in gold are within noise; the
+# number of hands won is not.
+MARGIN = {5: 1.05, 6: 1.3, 7: 1.5}
 PAIR_FALLBACK = False  # n<=5: calling any pair+ below the margin lost money (margin<1: 139 calls, -87억)
 STRONG_EQ = 0.65      # trips+ with this equity = strong: play through money limits
 BIG_BET_FRAC = 1 / 8  # a call this big (vs start gold) needs BIG_BET_EQ equity
