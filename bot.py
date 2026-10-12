@@ -177,6 +177,22 @@ def find_start_button(img):
     return None if best is None else (x0 + best[0] + best[2] // 2, y0 + best[1] + best[3] // 2)
 
 
+_seen_unknown = set()
+
+
+def remember_unknown(img, limit=40):
+    """Save every distinct screen the bot can't classify (and has no X for) into
+    logs/unknown_screens/ so its template can be made later."""
+    d = LOGS / "unknown_screens"
+    d.mkdir(exist_ok=True)
+    key = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (12, 6)) // 32
+    k = key.tobytes()
+    if k in _seen_unknown or len(list(d.glob("*.png"))) >= limit:
+        return
+    _seen_unknown.add(k)
+    cv2.imwrite(str(d / f"{int(time.time())}.png"), img)
+
+
 def prune_frames():
     fs = sorted(RUN.glob("*.png"), key=lambda p: p.stat().st_mtime)
     for p in fs[:-MAX_FRAMES]:
@@ -403,12 +419,17 @@ def main():
                 print("  confirm popup", flush=True)
                 adb.tap(*pos, wait=1.5)
                 continue
+            if recovery.is_storage_screen(img):   # the game opened 보관함 (out of gold?)
+                print("  보관함 screen -> claim the gold gift", flush=True)
+                recovery.claim_in_storage(img)
+                continue
             x = find_close_x(img)                 # ads / shop / mailbox ... -> X
             if x:
                 print("  unknown screen -> X button", x, flush=True)
                 cv2.imwrite(str(LOGS / "unknown_last.png"), img)
                 adb.tap(*x, wait=1.5)
                 continue
+            remember_unknown(img)
             unknown_since = unknown_since or time.time()
             if time.time() - unknown_since > 12:
                 print("  unknown screen -> BACK", flush=True)

@@ -189,17 +189,15 @@ def find_gift_gold(img, thr=0.85):
     return y0 + loc[1] + t.shape[0] // 2
 
 
-def claim_storage_gold():
-    """Last resort when refills and mission rewards are used up:
-    보관함 > 선물 > the gold gift > 받기 (ONE gift per call; never 모두 받기)."""
-    print("  보관함 > 선물 > 골드 받기 시도", flush=True)
-    if not is_lobby(adb.screencap()):
-        print("  not in lobby -> storage skipped", flush=True)
-        return False
-    adb.tap(*STORAGE_TAP, wait=2.5)
-    if is_lobby(adb.screencap()):
-        print("  storage did not open", flush=True)
-        return False
+def is_storage_screen(img, thr=0.85):
+    """The 보관함 screen header (top left)."""
+    sc, _ = _best(img, "storage_header.png", (0, 0, 500, 160))
+    return sc >= thr
+
+
+def claim_in_storage(img=None):
+    """We are ON the 보관함 screen: 선물 tab -> the gold gift's 받기 (ONE gift,
+    never 모두 받기) -> 확인 -> close with X. Returns True if gold was claimed."""
     adb.tap(*GIFT_TAB_TAP, wait=1.5)
     img = adb.screencap()
     cv2.imwrite(str(ROOT / "shots" / "storage_last.png"), img)
@@ -214,6 +212,20 @@ def claim_storage_gold():
         print("  no gold gift", flush=True)
     adb.tap(*CLOSE_TAP, wait=2)
     return ok
+
+
+def claim_storage_gold():
+    """Last resort when refills and mission rewards are used up:
+    보관함 > 선물 > the gold gift > 받기 (ONE gift per call; never 모두 받기)."""
+    print("  보관함 > 선물 > 골드 받기 시도", flush=True)
+    if not is_lobby(adb.screencap()):
+        print("  not in lobby -> storage skipped", flush=True)
+        return False
+    adb.tap(*STORAGE_TAP, wait=2.5)
+    if is_lobby(adb.screencap()):
+        print("  storage did not open", flush=True)
+        return False
+    return claim_in_storage()
 
 
 def recover():
