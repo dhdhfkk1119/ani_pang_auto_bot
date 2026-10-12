@@ -73,14 +73,15 @@ def find_afk(img, thr=0.85):
     return pos if btn >= thr else None
 
 
-def find_reconnect(img, thr=0.85):
-    """Center of '다시 연결' on the 'server connection unstable' popup. Both the
-    message and the button must match, so no other dialog is ever pressed."""
-    msg, _ = _best(img, "reconnect_msg.png", (700, 300, 1640, 640))
-    if msg < thr:
-        return None
+def find_reconnect(img, thr=0.85, btn_only_thr=0.92):
+    """Center of '다시 연결' on a connection popup ("서버 연결이 일시적으로 불안정합니다",
+    "네트워크 연결이 끊겼습니다", ...). Message + button must match; a very clean match
+    of the button alone also counts, because that button text only exists on these popups."""
     btn, pos = _best(img, "reconnect_btn.png", (960, 640, 1380, 840))
-    return pos if btn >= thr else None
+    if btn < thr:
+        return None
+    msg, _ = _best(img, "reconnect_msg.png", (700, 300, 1640, 640))
+    return pos if (msg >= thr or btn >= btn_only_thr) else None
 
 
 def press_reward_ok(img=None):
@@ -229,11 +230,12 @@ def claim_storage_gold():
 
 
 def recover():
-    """One recovery step from the lobby. Returns a short description."""
+    """One recovery step from the lobby, in the user's order:
+    무료충전 확인 -> 기본리필(5/일) -> 보관함 선물 골드 -> 미션 보상. Never pays."""
     if press_confirm():
         return "confirm"
     if basic_refill():
         return "refill"
-    if claim_one_mission():
-        return "mission"
-    return "storage" if claim_storage_gold() else "nothing"
+    if claim_storage_gold():
+        return "storage"
+    return "mission" if claim_one_mission() else "nothing"

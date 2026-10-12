@@ -425,6 +425,7 @@ def main():
                 continue
             x = find_close_x(img)                 # ads / shop / mailbox ... -> X
             if x:
+                remember_unknown(img)             # keep one copy: was it a free-gold popup?
                 print("  unknown screen -> X button", x, flush=True)
                 cv2.imwrite(str(LOGS / "unknown_last.png"), img)
                 adb.tap(*x, wait=1.5)
