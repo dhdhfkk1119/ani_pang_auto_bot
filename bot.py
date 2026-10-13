@@ -250,6 +250,7 @@ def main():
     tapped = {"choose": 0.0, "open": 0.0}       # last card-tap time per prompt
     last_beat, black_since, last_wake = time.time(), None, 0.0
     last_start_try = 0.0
+    entry_fail = 0
     adb.stay_awake()                         # never let the phone lock (10 min timeout)
     while time.time() - t0 < limit:
         img = adb.screencap()
@@ -260,6 +261,14 @@ def main():
             btn = gp["go"] if low else gp["next"]
             print(f"  gift popup (last gold {lg}만) -> {'보관함 가기' if low else '다음에'}", flush=True)
             adb.tap(*btn, wait=3, room=True)
+            continue
+        pos = recovery.find_noentry(img)         # "보유 금액이 부족해 입장이 불가능합니다" popup
+        if pos:
+            lg = recovery.last_gold()
+            print(f"  room entry refused (last gold {lg}만) -> 확인", flush=True)
+            adb.tap(*pos, wait=2, room=True)
+            if lg is None or lg < 20000:         # really short of gold -> recovery flow
+                entry_fail += 1
             continue
         pos = recovery.find_afk(img)             # "장시간 자리비움 ... 타이틀로 이동" popup
         if pos:
@@ -305,7 +314,8 @@ def main():
             last = s
         if s == "lobby":
             lobby_tries += 1
-            if lobby_tries > 3:          # can't enter the room -> out of gold
+            if lobby_tries > 3 or entry_fail >= 2:   # can't enter the room -> out of gold
+                entry_fail = 0
                 res = recovery.recover()
                 print("  lobby stuck -> recover:", res, flush=True)
                 lobby_tries = 0
