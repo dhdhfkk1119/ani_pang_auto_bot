@@ -101,19 +101,21 @@ TEN_EOK = 100000      # 10억 in 만 units
 # number of hands won is not.
 MARGIN = {5: 1.05, 6: 1.3, 7: 1.5}
 PAIR_FALLBACK = False  # n<=5: calling any pair+ below the margin lost money (margin<1: 139 calls, -87억)
-STRONG_EQ = 0.65      # trips+ with this equity = strong: play through money limits
+STRONG_EQ = 0.52# trips+ with this equity = strong: play through money limits
 STRONG_NEED_CLAUSE = True   # trips+ also 'strong' when equity >= need*1.15
 # Hard caps that even a 'strong' hand must obey (None = off). Live 10-13: trips called
 # 39.8억 into an 86억 pot and 19.2억 more = -58억, trips 27.9억 = -28억, flush 17.2억
 # = -17억 (all "strong made hand: ignore money limits"); gold 49억 -> 0 in ~1h.
 HARD_CALL_FRAC = 1 / 2      # one call >= this fraction of current gold needs HARD_EQ
 HARD_EXPOSURE_FRAC = 0.5    # hand exposure >= this fraction of start gold needs HARD_EQ
-HARD_EQ = 0.85
+HARD_EQ = 0.68
+EQ_QUARTER = 0.64# a call >= 1/4 of gold / hand exposure >= 1/4 of start gold needs this equity
+EQ_TEN_EOK = 0.56# a call >= 10억 without two pair needs this equity
 # tune_strong.py: on 1223 earlier hands these caps cost ~42억 (one big winning hand is
 # folded) but they stop the three -28/-58/-17억 calls of 10-13 (gold 49억 -> 0).
 BIG_BET_FRAC = 1 / 8  # a call this big (vs start gold) needs BIG_BET_EQ equity
-BIG_BET_EQ = 0.55     # replay of 69 hands: -77.8억 -> -45.9억, no winning hand cut
-TWO_PAIR_7TH_MIN = 0.45  # replay of 718 hands: with no start-pattern calls +279억
+BIG_BET_EQ = 0.44# replay of 69 hands: -77.8억 -> -45.9억, no winning hand cut
+TWO_PAIR_7TH_MIN = 0.36# replay of 718 hands: with no start-pattern calls +279억
 
 
 # Calibration from logged hands (backtest.py): at the 7th-card bet only opponents
@@ -121,6 +123,38 @@ TWO_PAIR_7TH_MIN = 0.45  # replay of 718 hands: with no start-pattern calls +279
 # actual/predicted win ratio per made-hand group, shrunk toward 1 (small samples).
 RATIO_7TH = {"low": 0.64, "two_pair": 0.68, "trips_straight": 0.86, "flush_up": 0.89}
 RATIO_EARLY = {"low": 1.0, "two_pair": 0.92, "trips_straight": 0.97, "flush_up": 0.95}
+
+
+# Logistic win-probability calibration fitted on the logged calls (fit_winprob.py,
+# 5-block time CV: Brier 0.2049 raw -> 0.1841 raw*0.74 -> 0.1796). Inputs besides the
+# simulated equity: street, my made hand, opponents' open hand, call/pot (bet size).
+import json as _json
+from pathlib import Path as _Path
+try:
+    _WP = _json.loads((_Path(__file__).parent / "winprob_model.json").read_text())["w"]
+except Exception:
+    _WP = None
+USE_WINPROB = True
+# Thresholds below that compare with `equity` were retuned x0.8 for the calibrated scale
+# (tune_winprob.py, 3 time blocks, margins 1.05/1.3/1.5): old rule +206억 vs new +631억 in the
+# replay, better in every block. In-sample for the fit; judge it on hands logged after 10-14.
+
+
+def winprob(raw_eq, n, mine, opp_open, call, pot):
+    """Calibrated chance that I end up winning this hand (or None if no model)."""
+    import math
+    if not _WP:
+        return None
+    vis = max([hands.evaluate(o)[0] if o else 0 for o in opp_open] + [0])
+    made = hands.evaluate(mine)[0]
+    p = min(max(raw_eq, 0.02), 0.98)
+    x = [1.0, math.log(p / (1 - p)),
+         1.0 if vis == hands.PAIR else 0.0, 1.0 if vis >= hands.TWO_PAIR else 0.0,
+         1.0 if n == 6 else 0.0, 1.0 if n >= 7 else 0.0,
+         1.0 if made == hands.TWO_PAIR else 0.0, 1.0 if made >= hands.TRIPLE else 0.0,
+         min(call / pot, 1.5) if (call and pot) else 0.5]
+    z = sum(a * b for a, b in zip(_WP, x))
+    return 1 / (1 + math.exp(-z))
 
 
 def calibrate(equity, n, made):
@@ -146,7 +180,11 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
         # 콜 for "0 골드" is as free as 체크: 96 such spots were folded (log 10-07~08)
         return "call", "free check" if is_check else "free call (0 골드)"
     raw_eq, p2 = simulate(mine, n_opp, opp_open, bet_faced=bool(call))
-    equity = calibrate(raw_eq, n, made)
+    equity = None
+    if USE_WINPROB:
+        equity = winprob(raw_eq, n, mine, opp_open, call, pot)
+    if equity is None:
+        equity = calibrate(raw_eq, n, made)
     fair = 1.0 / (n_opp + 1)
     need = call / (pot + call) if (call and pot) else 0.8 * fair   # pot odds
     vis = ",".join(visible_summary(opp_open))
@@ -177,14 +215,14 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     if call and base and n >= 5 and call >= base * BIG_BET_FRAC and equity < BIG_BET_EQ:
         return "die", info + f" | big bet {call}만 >= 1/{round(1 / BIG_BET_FRAC)} of {base}만 with weak hand"
     if call and gold and call >= gold / 4:
-        if n <= 5 or equity < 0.8:
+        if n <= 5 or equity < EQ_QUARTER:
             return "die", info + f" | call {call}만 >= 1/4 of gold {gold}만"
     # total committed in THIS hand (earlier calls + this one) must stay under 1/4
     # of the gold I had when the hand started, unless the hand is a near-lock
-    if call and start_gold and invested + call >= start_gold / 4 and equity < 0.8:
+    if call and start_gold and invested + call >= start_gold / 4 and equity < EQ_QUARTER:
         return "die", info + (f" | hand exposure {invested + call}만 >= 1/4 of "
                               f"start gold {start_gold}만")
-    if call and call >= TEN_EOK and made < hands.TWO_PAIR and equity < 0.7:
+    if call and call >= TEN_EOK and made < hands.TWO_PAIR and equity < EQ_TEN_EOK:
         return "die", info + f" | call {call}만 >= 10억 without two pair"
     # two pair at the 7th card was over-estimated: eq 0.3-0.4 won 7/34 (-136억)
     if n >= 7 and made == hands.TWO_PAIR and equity < TWO_PAIR_7TH_MIN:

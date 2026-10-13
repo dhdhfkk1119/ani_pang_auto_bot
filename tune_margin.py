@@ -21,7 +21,7 @@ def run(hs):
         if g0 is None or g1 is None:
             continue
         delta = g1 - g0
-        if abs(delta) > 1.6 * max([r["pot"] or 0 for r in h] + [1]) + 3000:
+        if abs(delta) > 1.6 * max([r["pot"] or 0 for r in h] + [3 * r["call"] for r in h] + [1]) + 3000:
             continue
         inv, nd, cut = 0, delta, False
         for r in h:
