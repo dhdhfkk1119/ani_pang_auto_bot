@@ -161,6 +161,20 @@ def tap_card(i, want):
     return True
 
 
+def start_button(img, thr=0.85):
+    """Center of the 게임시작 button (template). It can show while TOTAL still
+    holds the previous pot, so it is checked regardless of pot / player count."""
+    t = T.get("start_btn")
+    if t is None:
+        return None
+    x0, x1, y0, y1 = 1000, 1560, 680, 900
+    res = cv2.matchTemplate(img[y0:y1, x0:x1], t, cv2.TM_CCOEFF_NORMED)
+    _, mx, _, loc = cv2.minMaxLoc(res)
+    if mx < thr:
+        return None
+    return x0 + loc[0] + t.shape[1] // 2, y0 + loc[1] + t.shape[0] // 2
+
+
 def find_start_button(img):
     """'게임 시작' button that appears on my seat panel once somebody joins.
     No template yet -> look for a saturated, button-shaped blob on the panel."""
@@ -232,6 +246,7 @@ def main():
     nothing_n = 0
     pending_discard, open_retries = None, 0
     hand_cache = None                       # my cards as last read in this hand
+    last_start_press = 0.0                  # last 게임시작 (template) tap
     tapped = {"choose": 0.0, "open": 0.0}       # last card-tap time per prompt
     last_beat, black_since, last_wake = time.time(), None, 0.0
     last_start_try = 0.0
@@ -450,6 +465,13 @@ def main():
             time.sleep(1.0)
         else:
             total = ocr.read_amount(img, ocr.TOTAL_BOX) if s == "wait" else None
+            sb = start_button(img) if s == "wait" else None
+            if sb and time.time() - last_start_press > 1.5:
+                print("  게임시작 ->", sb, flush=True)
+                adb.tap(*sb, wait=1.0, room=True)
+                last_start_press = time.time()
+                idle_since = None
+                continue
             no_game = (s == "wait" and cards.count_cards(img) == 0
                        and not any(cards.count_open(img, k) for k in cards.OPP_ANCHOR)
                        and total in (0, None))
