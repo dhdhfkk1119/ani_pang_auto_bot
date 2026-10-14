@@ -115,6 +115,27 @@ def find_noentry(img, thr=0.85):
     return pos if btn >= thr else None
 
 
+def find_bracket(img, thr=0.85):
+    """'경기장 입장 자산 구간에 맞지 않아 로비로 이동하였습니다.' popup -> its 확인 button."""
+    msg, _ = _best(img, "bracket_msg.png", (700, 300, 1640, 640))
+    if msg < thr:
+        return None
+    btn, pos = _best(img, "reward_ok_btn.png", (960, 640, 1380, 840))
+    return pos if btn >= thr else None
+
+
+def find_generic_ok(img, thr=0.9):
+    """Any DIMMED info popup that has the single centred 확인 pill (the shape shared by the
+    reward / entry-refused / AFK popups). Purchase dialogs have two buttons and never match."""
+    if img is None or img.shape[:2] != (1080, 2340):
+        return None
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    if g.mean() > 60:                  # a popup dims the whole screen
+        return None
+    btn, pos = _best(img, "reward_ok_btn.png", (960, 640, 1380, 840))
+    return pos if btn >= thr else None
+
+
 def find_reconnect(img, thr=0.85, btn_only_thr=0.92):
     """Center of '다시 연결' on a connection popup ("서버 연결이 일시적으로 불안정합니다",
     "네트워크 연결이 끊겼습니다", ...). Message + button must match; a very clean match

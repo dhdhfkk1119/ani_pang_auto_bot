@@ -17,6 +17,7 @@ import cards
 import hands
 import ocr
 import recovery
+import rooms
 import strategy
 
 UI = Path(__file__).parent / "templates" / "ui"
@@ -262,9 +263,16 @@ def main():
             print(f"  gift popup (last gold {lg}만) -> {'보관함 가기' if low else '다음에'}", flush=True)
             adb.tap(*btn, wait=3, room=True)
             continue
+        pos = recovery.find_bracket(img)         # "경기장 입장 자산 구간에 맞지 않아 ..." popup
+        if pos:
+            idx = rooms.too_rich(recovery.last_gold())
+            print(f"  asset bracket mismatch (too rich) -> next room chip #{idx}", flush=True)
+            adb.tap(*pos, wait=2, room=True)
+            continue
         pos = recovery.find_noentry(img)         # "보유 금액이 부족해 입장이 불가능합니다" popup
         if pos:
             lg = recovery.last_gold()
+            print(f"  too poor for this chip -> chip #{rooms.too_poor(lg)}", flush=True)
             print(f"  room entry refused (last gold {lg}만) -> 확인", flush=True)
             adb.tap(*pos, wait=2, room=True)
             if lg is None or lg < 20000:         # really short of gold -> recovery flow
@@ -279,6 +287,12 @@ def main():
         if pos:
             print("  server unstable popup -> 다시 연결", pos, flush=True)
             adb.tap(*pos, wait=3, room=True)
+            continue
+        pos = recovery.find_generic_ok(img)      # any other dimmed popup with a lone 확인
+        if pos:
+            remember_unknown(img)                # keep a copy: which popup was it?
+            print("  dimmed popup with a single 확인 -> 확인", pos, flush=True)
+            adb.tap(*pos, wait=2, room=True)
             continue
         s = state(img)
         adb.keepalive()
@@ -326,7 +340,7 @@ def main():
                     return EXIT_OUT_OF_GOLD
                 if res == "nothing":        # nothing claimable right now
                     time.sleep(30)
-            adb.tap(*ROOM_TAP, wait=4)
+            adb.tap(*rooms.tap_xy(recovery.last_gold()), wait=4)
         elif s == "alone":
             # alone in the room: wait for someone; else move to a populated room
             alone_since = alone_since or time.time()
@@ -437,6 +451,8 @@ def main():
         elif s == "loading":
             # black screen: loading a room (short) or the phone screen is off / the
             # game left the foreground (long) -> wake it up and bring the game back
+            if 12 < float(img.mean()) < 60:       # not pitch black: a popup we can't read yet
+                remember_unknown(img)
             black_since = black_since or time.time()
             if time.time() - black_since > 40 and time.time() - last_wake > 30:
                 print("  black screen 40s+ -> wake / start game", flush=True)
