@@ -100,6 +100,10 @@ TEN_EOK = 100000      # 10억 in 만 units
 # 1.05-1.3-1.5 = +314억 / 156 wins. Differences in gold are within noise; the
 # number of hands won is not.
 MARGIN = {5: 1.05, 6: 1.3, 7: 1.5}
+WIN_MODE = True            # maximise hands won (gold losses accepted); False = gold mode
+WIN_EQ = 0.10              # min win probability for a win-mode call
+WIN_CALL_FRAC = 1 / 10     # win-mode call must be <= this fraction of current gold
+WIN_EXPOSURE_FRAC = 0.3    # ... and the hand total <= this fraction of start gold
 PAIR_FALLBACK = False  # n<=5: calling any pair+ below the margin lost money (margin<1: 139 calls, -87억)
 STRONG_EQ = 0.52# trips+ with this equity = strong: play through money limits
 STRONG_NEED_CLAUSE = True   # trips+ also 'strong' when equity >= need*1.15
@@ -207,6 +211,14 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
         if equity >= need:
             return "call", info + " | strong made hand: ignore money limits"
         return "die", info + " | strong hand but equity below pot odds"
+    # WIN-COUNT MODE (user, 2026-10-15): the goal is the number of hands won, gold
+    # losses accepted. Any affordable call with a real chance is taken, even
+    # below the pot odds. Logs 10-12~14 (1242 hands): folds with eq >= 0.15 and
+    # call <= gold/10 were ~93 expected extra wins at ~0 expected cost (1st call).
+    if (WIN_MODE and call and gold and call <= gold * WIN_CALL_FRAC
+            and equity >= WIN_EQ
+            and (not start_gold or invested + call <= start_gold * WIN_EXPOSURE_FRAC)):
+        return "call", info + f" | win mode: eq >= {WIN_EQ} and call <= gold/{round(1 / WIN_CALL_FRAC)}"
     if call and gold and call >= gold * 0.95:
         return "die", info + f" | call {call}만 ~ all-in (gold {gold}만)"
     # opponents escalate (0.75억 -> 3.75억 -> 18.75억): calling the middle bet with
