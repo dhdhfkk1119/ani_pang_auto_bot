@@ -82,6 +82,16 @@ def best_discard_mc(cards4, n_opp=3, sims=250, seed=11):
     return (cands[0] if len(cands) == 1 else None), scores
 
 
+def is_draw(mine):
+    """4+ cards of one suit or 4 cards inside a 5-rank window, and not yet a flush/straight."""
+    if len(mine) >= 7 or hands.evaluate(mine)[0] >= hands.STRAIGHT:
+        return False
+    if max(sum(1 for _, s in mine if s == su) for su in "SDHC") >= 4:
+        return True
+    ranks = {r for r, _ in mine} | ({1} if any(r == 14 for r, _ in mine) else set())
+    return max(sum(1 for x in range(lo, lo + 5) if x in ranks) for lo in range(1, 11)) >= 4
+
+
 def start_pattern(first3):
     """User's 'don't die early' conditions on the first 3 cards (after the discard).
     Returns the matching pattern name or None."""
@@ -117,7 +127,15 @@ MARGIN = {5: 1.05, 6: 1.3, 7: 1.5}
 WIN_MODE = True            # maximise hands won (gold losses accepted); False = gold mode
 WIN_EQ = 0.05              # min win probability for a win-mode call (tune_winmode.py: .10 -> 17.0%, .05 -> 18.8% expected win rate)
 WIN_CALL_FRAC = 1 / 10     # win-mode call must be <= this fraction of current gold
-WIN_EXPOSURE_FRAC = 0.3    # ... and the hand total <= this fraction of start gold
+WIN_EXPOSURE_FRAC = 0.3
+# Win mode, bigger bets (tune from the 10-15/16 logs, 391 folds facing a bet): the old
+# "big bet" fold lost ~18.6 expected wins. Calls with eq >= 0.15 and call <= gold/3 were +9.3
+# wins and +51억 EV; draws below that cost more than they win, so draws get a smaller allowance.
+WIN_BIG_EQ = 0.15
+WIN_BIG_CALL_FRAC = 1 / 3
+WIN_DRAW_EQ = 0.08         # flush / straight draw before the 7th card
+WIN_DRAW_CALL_FRAC = 1 / 3
+WIN_BIG_EXPOSURE_FRAC = 0.5    # ... and the hand total <= this fraction of start gold
 PAIR_FALLBACK = False  # n<=5: calling any pair+ below the margin lost money (margin<1: 139 calls, -87억)
 STRONG_EQ = 0.52# trips+ with this equity = strong: play through money limits
 STRONG_NEED_CLAUSE = True   # trips+ also 'strong' when equity >= need*1.15
@@ -233,6 +251,11 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
             and equity >= WIN_EQ
             and (not start_gold or invested + call <= start_gold * WIN_EXPOSURE_FRAC)):
         return "call", info + f" | win mode: eq >= {WIN_EQ} and call <= gold/{round(1 / WIN_CALL_FRAC)}"
+    if WIN_MODE and call and gold and (not start_gold or invested + call <= start_gold * WIN_BIG_EXPOSURE_FRAC):
+        if equity >= WIN_BIG_EQ and call <= gold * WIN_BIG_CALL_FRAC:
+            return "call", info + f" | win mode: eq >= {WIN_BIG_EQ} and call <= gold/{round(1 / WIN_BIG_CALL_FRAC)}"
+        if equity >= WIN_DRAW_EQ and call <= gold * WIN_DRAW_CALL_FRAC and is_draw(mine):
+            return "call", info + f" | win mode: draw, eq >= {WIN_DRAW_EQ} and call <= gold/{round(1 / WIN_DRAW_CALL_FRAC)}"
     if call and gold and call >= gold * 0.95:
         return "die", info + f" | call {call}만 ~ all-in (gold {gold}만)"
     # opponents escalate (0.75억 -> 3.75억 -> 18.75억): calling the middle bet with
