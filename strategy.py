@@ -125,7 +125,7 @@ TEN_EOK = 100000      # 10억 in 만 units
 # number of hands won is not.
 MARGIN = {5: 1.05, 6: 1.3, 7: 1.5}
 WIN_MODE = True            # maximise hands won (gold losses accepted); False = gold mode
-WIN_EQ = 0.05              # min win probability for a win-mode call (tune_winmode.py: .10 -> 17.0%, .05 -> 18.8% expected win rate)
+WIN_EQ = 0.10# min win probability for a win-mode call (tune_winmode.py: .10 -> 17.0%, .05 -> 18.8% expected win rate)
 WIN_CALL_FRAC = 1 / 10     # win-mode call must be <= this fraction of current gold
 WIN_EXPOSURE_FRAC = 0.3
 # Win mode, bigger bets (tune from the 10-15/16 logs, 391 folds facing a bet): the old
@@ -133,9 +133,13 @@ WIN_EXPOSURE_FRAC = 0.3
 # wins and +51억 EV; draws below that cost more than they win, so draws get a smaller allowance.
 WIN_BIG_EQ = 0.15
 WIN_BIG_CALL_FRAC = 1 / 3
-WIN_DRAW_EQ = 0.08         # flush / straight draw before the 7th card
-WIN_DRAW_CALL_FRAC = 1 / 3
-WIN_BIG_EXPOSURE_FRAC = 0.5    # ... and the hand total <= this fraction of start gold
+WIN_DRAW_EQ = 0.10# flush / straight draw before the 7th card
+WIN_DRAW_CALL_FRAC = 1 / 5
+WIN_BIG_EXPOSURE_FRAC = 0.5
+# Overnight run 10-16 (570 hands, gold 533억 -> 0.95억): win-mode entries below eq 0.10 won 7 of 84
+# hands (-448억); win-mode calls at the 7th card below eq 0.25 won 4 of 63 (-377억) while eq >= 0.25 won
+# 14 of 34. So the win mode is switched off below these equities.
+WIN_EQ_7TH = 0.25    # ... and the hand total <= this fraction of start gold
 PAIR_FALLBACK = False  # n<=5: calling any pair+ below the margin lost money (margin<1: 139 calls, -87억)
 STRONG_EQ = 0.52# trips+ with this equity = strong: play through money limits
 STRONG_NEED_CLAUSE = True   # trips+ also 'strong' when equity >= need*1.15
@@ -248,11 +252,11 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     # below the pot odds. Logs 10-12~14 (1242 hands): folds with eq >= 0.15 and
     # call <= gold/10 were ~93 expected extra wins at ~0 expected cost (1st call).
     if (WIN_MODE and call and gold and call <= gold * WIN_CALL_FRAC
-            and equity >= WIN_EQ
+            and equity >= (WIN_EQ_7TH if n >= 7 else WIN_EQ)
             and (not start_gold or invested + call <= start_gold * WIN_EXPOSURE_FRAC)):
         return "call", info + f" | win mode: eq >= {WIN_EQ} and call <= gold/{round(1 / WIN_CALL_FRAC)}"
     if WIN_MODE and call and gold and (not start_gold or invested + call <= start_gold * WIN_BIG_EXPOSURE_FRAC):
-        if equity >= WIN_BIG_EQ and call <= gold * WIN_BIG_CALL_FRAC:
+        if equity >= (WIN_EQ_7TH if n >= 7 else WIN_BIG_EQ) and call <= gold * WIN_BIG_CALL_FRAC:
             return "call", info + f" | win mode: eq >= {WIN_BIG_EQ} and call <= gold/{round(1 / WIN_BIG_CALL_FRAC)}"
         if equity >= WIN_DRAW_EQ and call <= gold * WIN_DRAW_CALL_FRAC and is_draw(mine):
             return "call", info + f" | win mode: draw, eq >= {WIN_DRAW_EQ} and call <= gold/{round(1 / WIN_DRAW_CALL_FRAC)}"
