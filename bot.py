@@ -57,6 +57,18 @@ def active_opponents(img):
     return out
 
 
+TABLE_SELECT = True        # win rate is 37% heads-up / 29% vs 2 / 21% vs 3 / 20% vs 4+ (logs): hop away from full tables
+HOP_MIN = 4                # leave (between hands) when at least this many opponents are seated
+HOP_GAP = 75               # seconds between hops
+HOP_STREAK_MAX = 3         # then stay and play (tables are full everywhere)
+
+
+def seated_opponents(img):
+    """Opponents sitting at the table (avatars present), whether or not a hand is running."""
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return sum(1 for (x0, y0, x1, y1) in SEATS.values() if g[y0:y1, x0:x1].std() > 20)
+
+
 def score(img, name, roi, thr=0.9):
     y0, y1, x0, x1 = roi
     return cv2.matchTemplate(img[y0:y1, x0:x1], T[name],
@@ -289,6 +301,7 @@ def main():
     tapped = {"choose": 0.0, "open": 0.0}       # last card-tap time per prompt
     last_beat, black_since, last_wake = time.time(), None, 0.0
     last_start_try = 0.0
+    last_hop, hop_streak = 0.0, 0
     esc = {"since": None, "n": 0, "last_restart": 0.0}
     frozen = {"thumb": None, "since": time.time(), "last": 0.0}
     entry_fail = 0
@@ -406,6 +419,8 @@ def main():
             time.sleep(0.3)
         elif s == "choose":
             cs = cards.read_choose(img)
+            hop_streak = 0
+            print(f"  table: {seated_opponents(img)} opponents seated", flush=True)
             print("  hand:", [hands.fmt(c) if c else None for c in cs])
             if None in cs:
                 print("  unreadable card -> skip (auto discard)")
@@ -540,6 +555,14 @@ def main():
                 idle_since = None
             else:
                 idle_since = idle_since or time.time()
+                if TABLE_SELECT and hop_streak < HOP_STREAK_MAX and time.time() - last_hop > HOP_GAP:
+                    seated = seated_opponents(img)
+                    if seated >= HOP_MIN:
+                        print(f"  table has {seated} opponents -> 방이동 (looking for a smaller table)", flush=True)
+                        adb.tap(*MOVE_ROOM_TAP, wait=3, room=True)
+                        last_hop, hop_streak = time.time(), hop_streak + 1
+                        idle_since = None
+                        continue
                 if time.time() - idle_since > ALONE_WAIT:
                     print(f"  no game for {ALONE_WAIT}s+ -> 방이동", flush=True)
                     adb.tap(*MOVE_ROOM_TAP, wait=3, room=True)
