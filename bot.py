@@ -104,7 +104,7 @@ def find_close_x(img, thr=0.8):
     return loc[0] + t.shape[1] // 2, loc[1] + t.shape[0] // 2
 
 
-def best_discard(cs):
+def best_discard(cs, allowed=range(4)):
     """Index of the card to throw away from the first 4."""
     # Without a pair, draws come before high cards: the old key compared the
     # high cards first and kept 4-5-7 over 3c-4c-7c (flush draw) / 3-4-5
@@ -122,7 +122,7 @@ def best_discard(cs):
         if v[0] >= hands.PAIR:
             return (1, v[0], v[1:3], suited, conn)
         return (0, suited, conn, ranks[2], ranks[1])
-    best = max(range(4), key=lambda i: key([c for j, c in enumerate(cs) if j != i]))
+    best = max(allowed, key=lambda i: key([c for j, c in enumerate(cs) if j != i]))
     return best
 
 
@@ -361,7 +361,15 @@ def main():
                 print("  unreadable card -> skip (auto discard)")
                 time.sleep(6)
                 continue
-            i = best_discard(cs)
+            i = best_discard(cs)                  # rule-based fallback / tie-break
+            try:
+                j, sc = strategy.best_discard_mc(cs)
+                # options within the simulation noise (~0.03) of the best: let the rules decide
+                near = [k for k, e in enumerate(sc) if e >= max(sc) - 0.03]
+                i = best_discard(cs, near) if len(near) > 1 else near[0]
+                print("  discard equities", [round(e, 3) for e in sc], "near", near, flush=True)
+            except Exception as e:                # never let the simulation block the 10s timer
+                print("  discard MC failed:", type(e).__name__, flush=True)
             print("  discard", hands.fmt(cs[i]))
             if tap_card(i, "choose"):
                 pending_discard = i

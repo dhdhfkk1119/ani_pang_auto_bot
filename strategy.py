@@ -68,6 +68,20 @@ def simulate(mine, n_opp, opp_open=(), sims=500, seed=None, bet_faced=False, sta
     return win / used, made_two / used
 
 
+def best_discard_mc(cards4, n_opp=3, sims=250, seed=11):
+    """Index (0..3) of the card to throw away: the one whose remaining 3 cards have the
+    highest simulated chance to win a hand (opponents' cards unknown). Ties -> None."""
+    best, best_eq = None, -1.0
+    scores = []
+    for i in range(4):
+        keep = [c for j, c in enumerate(cards4) if j != i]
+        eq, _ = simulate(keep, n_opp, (), sims=sims, seed=seed)
+        scores.append(eq)
+    top = max(scores)
+    cands = [i for i, e in enumerate(scores) if e >= top - 1e-9]
+    return (cands[0] if len(cands) == 1 else None), scores
+
+
 def start_pattern(first3):
     """User's 'don't die early' conditions on the first 3 cards (after the discard).
     Returns the matching pattern name or None."""
@@ -101,7 +115,7 @@ TEN_EOK = 100000      # 10억 in 만 units
 # number of hands won is not.
 MARGIN = {5: 1.05, 6: 1.3, 7: 1.5}
 WIN_MODE = True            # maximise hands won (gold losses accepted); False = gold mode
-WIN_EQ = 0.10              # min win probability for a win-mode call
+WIN_EQ = 0.05              # min win probability for a win-mode call (tune_winmode.py: .10 -> 17.0%, .05 -> 18.8% expected win rate)
 WIN_CALL_FRAC = 1 / 10     # win-mode call must be <= this fraction of current gold
 WIN_EXPOSURE_FRAC = 0.3    # ... and the hand total <= this fraction of start gold
 PAIR_FALLBACK = False  # n<=5: calling any pair+ below the margin lost money (margin<1: 139 calls, -87억)
