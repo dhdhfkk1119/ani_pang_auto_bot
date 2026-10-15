@@ -208,6 +208,44 @@ def remember_unknown(img, limit=40):
     cv2.imwrite(str(d / f"{int(time.time())}.png"), img)
 
 
+def escape(img, st):
+    """One step of the 'never stop' ladder for a screen the bot does not know.
+    X  ->  popup button (the only one, else the LEFT = cancel side)  ->  BACK  ->  restart game.
+    Never taps price/purchase buttons: only X icons, lone 확인-type pills, or the cancel pill."""
+    now = time.time()
+    st["since"] = st["since"] or now
+    st["n"] += 1
+    stuck = now - st["since"]
+    remember_unknown(img)
+    if recovery.is_storage_screen(img):
+        print("  보관함 screen -> claim the gold gift", flush=True)
+        recovery.claim_in_storage(img)
+        return "storage"
+    x = find_close_x(img)
+    if x:
+        print(f"  [escape {st['n']}] X button {x}", flush=True)
+        adb.tap(*x, wait=1.5)
+        return "X"
+    pills = recovery.find_pills(img)
+    if 1 <= len(pills) <= 3:
+        p = pills[0]
+        print(f"  [escape {st['n']}] popup button {p} (of {len(pills)}, leftmost)", flush=True)
+        adb.tap(*p, wait=1.5, room=True)
+        return "pill"
+    if stuck > 120 and now - st["last_restart"] > 300:
+        print("  [escape] stuck 120s+ -> restart the game", flush=True)
+        st["last_restart"], st["since"], st["n"] = now, None, 0
+        adb.restart_game()
+        return "restart"
+    if stuck > 20 and st["n"] % 3 == 0:
+        print(f"  [escape {st['n']}] BACK", flush=True)
+        cv2.imwrite(str(LOGS / "unknown_last.png"), img)
+        adb.payment_guard()
+        adb.key(4)
+        return "BACK"
+    return None
+
+
 def prune_frames():
     fs = sorted(RUN.glob("*.png"), key=lambda p: p.stat().st_mtime)
     for p in fs[:-MAX_FRAMES]:
@@ -251,6 +289,8 @@ def main():
     tapped = {"choose": 0.0, "open": 0.0}       # last card-tap time per prompt
     last_beat, black_since, last_wake = time.time(), None, 0.0
     last_start_try = 0.0
+    esc = {"since": None, "n": 0, "last_restart": 0.0}
+    frozen = {"thumb": None, "since": time.time(), "last": 0.0}
     entry_fail = 0
     adb.stay_awake()                         # never let the phone lock (10 min timeout)
     while time.time() - t0 < limit:
@@ -295,6 +335,16 @@ def main():
             adb.tap(*pos, wait=2, room=True)
             continue
         s = state(img)
+        if s not in ("unknown", "loading"):
+            esc["since"], esc["n"] = None, 0
+        thumb = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (64, 36)).astype("int16")
+        if frozen["thumb"] is None or abs(thumb - frozen["thumb"]).mean() > 0.4:
+            frozen["thumb"], frozen["since"] = thumb, time.time()
+        elif time.time() - frozen["since"] > 300 and time.time() - frozen["last"] > 600:
+            print("  screen frozen 300s+ -> restart the game", flush=True)
+            frozen["last"], frozen["since"] = time.time(), time.time()
+            adb.restart_game()
+            continue
         adb.keepalive()
         if time.time() - last_beat > 60:         # the supervisor reads silence as a hang
             print(f"  [alive] {s}", flush=True)
@@ -457,45 +507,22 @@ def main():
         elif s == "title":
             time.sleep(2.0)                  # game is loading; touching/BACK here is harmful
         elif s == "loading":
-            # black screen: loading a room (short) or the phone screen is off / the
-            # game left the foreground (long) -> wake it up and bring the game back
-            if 12 < float(img.mean()) < 60:       # not pitch black: a popup we can't read yet
-                remember_unknown(img)
-            black_since = black_since or time.time()
-            if time.time() - black_since > 40 and time.time() - last_wake > 30:
-                print("  black screen 40s+ -> wake / start game", flush=True)
-                adb.wake()
-                if not adb.game_in_front():
-                    adb.start_game()
-                last_wake = time.time()
+            # pitch black = loading a room (short) or the phone screen is off / the game
+            # left the foreground (long); dim but not black = a popup we can't read yet
+            if float(img.mean()) >= 12:
+                escape(img, esc)
+            else:
+                black_since = black_since or time.time()
+                if time.time() - black_since > 40 and time.time() - last_wake > 30:
+                    print("  black screen 40s+ -> wake / start game", flush=True)
+                    adb.wake()
+                    if not adb.game_in_front():
+                        adb.start_game()
+                    last_wake = time.time()
             time.sleep(1.0)
         elif s == "unknown":
-            # not a room / lobby / loading screen (shop, event popup, ...): never tap
-            # anything; after a while press BACK once to close it.
-            pos = recovery.find_confirm(img)      # 돈 받기 popup over the lobby
-            if pos:
-                print("  confirm popup", flush=True)
-                adb.tap(*pos, wait=1.5)
-                continue
-            if recovery.is_storage_screen(img):   # the game opened 보관함 (out of gold?)
-                print("  보관함 screen -> claim the gold gift", flush=True)
-                recovery.claim_in_storage(img)
-                continue
-            x = find_close_x(img)                 # ads / shop / mailbox ... -> X
-            if x:
-                remember_unknown(img)             # keep one copy: was it a free-gold popup?
-                print("  unknown screen -> X button", x, flush=True)
-                cv2.imwrite(str(LOGS / "unknown_last.png"), img)
-                adb.tap(*x, wait=1.5)
-                continue
-            remember_unknown(img)
-            unknown_since = unknown_since or time.time()
-            if time.time() - unknown_since > 12:
-                print("  unknown screen -> BACK", flush=True)
-                cv2.imwrite(str(LOGS / "unknown_last.png"), img)
-                adb.payment_guard()
-                adb.key(4)
-                unknown_since = time.time()
+            # shop / ads / event / any new screen: walk the ladder until a known screen shows
+            escape(img, esc)
             time.sleep(1.0)
         else:
             total = ocr.read_amount(img, ocr.TOTAL_BOX) if s == "wait" else None

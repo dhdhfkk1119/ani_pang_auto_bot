@@ -136,6 +136,26 @@ def find_generic_ok(img, thr=0.9):
     return pos if btn >= thr else None
 
 
+def find_pills(img):
+    """Pill-shaped buttons of a dimmed modal popup, left to right: [(x, y), ...].
+    Found by shape (bright outline, 200-340 x 60-120 px) in the popup's button band."""
+    if img is None or img.shape[:2] != (1080, 2340):
+        return []
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    if g.mean() > 60:                       # not a modal (a popup dims the screen)
+        return []
+    y0, y1, x0, x1 = 620, 820, 700, 1640
+    band = (g[y0:y1, x0:x1] > 140).astype("uint8") * 255
+    band = cv2.morphologyEx(band, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25)))
+    cs, _ = cv2.findContours(band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    out = []
+    for c in cs:
+        x, y, w, h = cv2.boundingRect(c)
+        if 190 <= w <= 360 and 60 <= h <= 125 and 2.0 <= w / h <= 4.5:
+            out.append((x0 + x + w // 2, y0 + y + h // 2))
+    return sorted(out)
+
+
 def find_reconnect(img, thr=0.85, btn_only_thr=0.92):
     """Center of '다시 연결' on a connection popup ("서버 연결이 일시적으로 불안정합니다",
     "네트워크 연결이 끊겼습니다", ...). Message + button must match; a very clean match

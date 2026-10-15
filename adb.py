@@ -157,5 +157,15 @@ def start_game():
          capture_output=True)
 
 
+def restart_game():
+    """Last resort for a stuck/frozen game: kill it and launch it again (title -> lobby).
+    Never runs while a payment window is in front (payment_guard aborts first)."""
+    payment_guard()
+    _run(["shell", "am", "force-stop", GAME_PKG])
+    time.sleep(2)
+    _run(["shell", "monkey", "-p", GAME_PKG, "-c", "android.intent.category.LAUNCHER", "1"],
+         capture_output=True)
+
+
 def key(code):
     _run(["shell", "input", "keyevent", str(code)])
