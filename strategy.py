@@ -237,6 +237,13 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     # bets cost more than every other leak together (log 2026-10-07)
     # trips+ that beat the pot odds also play through the money limits: trips
     # called at the 7th card won 59%, while 5 trips folded to big bets lost 119억
+    # already all-in (gold 0): calling costs nothing more, folding throws the pot
+    # away (10-16: A-flush folded all-in to a 10억 pot by the hard cap below)
+    if gold == 0 and call:
+        return "call", info + " | already all-in: call costs nothing"
+    # flush or better is never folded to a money limit (same hand: eq 0.60 vs HARD_EQ)
+    if made >= hands.FLUSH and equity >= need:
+        return "call", info + " | flush+ beats pot odds: ignore money limits"
     if HARD_CALL_FRAC and call and gold and call >= gold * HARD_CALL_FRAC and equity < HARD_EQ:
         return "die", info + f" | hard cap: call {call}만 >= {HARD_CALL_FRAC:.2f} of gold {gold}만"
     if (HARD_EXPOSURE_FRAC and call and start_gold
