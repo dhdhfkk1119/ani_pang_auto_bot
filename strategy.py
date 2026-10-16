@@ -132,6 +132,8 @@ WIN_EXPOSURE_FRAC = 0.3
 # "big bet" fold lost ~18.6 expected wins. Calls with eq >= 0.15 and call <= gold/3 were +9.3
 # wins and +51억 EV; draws below that cost more than they win, so draws get a smaller allowance.
 WIN_BIG_EQ = 0.15
+WIN_BIG_NEED = 1.0         # calls > gold/10 also need equity >= pot-odds need x this
+WIN_DRAW_NEED = 0.8        # draws (implied odds) need equity >= need x this
 WIN_BIG_CALL_FRAC = 1 / 3
 WIN_DRAW_EQ = 0.10# flush / straight draw before the 7th card
 WIN_DRAW_CALL_FRAC = 1 / 5
@@ -256,9 +258,13 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
             and (not start_gold or invested + call <= start_gold * WIN_EXPOSURE_FRAC)):
         return "call", info + f" | win mode: eq >= {WIN_EQ} and call <= gold/{round(1 / WIN_CALL_FRAC)}"
     if WIN_MODE and call and gold and (not start_gold or invested + call <= start_gold * WIN_BIG_EXPOSURE_FRAC):
-        if equity >= (WIN_EQ_7TH if n >= 7 else WIN_BIG_EQ) and call <= gold * WIN_BIG_CALL_FRAC:
+        # big calls must not burn the bankroll: 10-16 09:00-09:30 lost 50억 in 25 min
+        # on 2~8억 calls at eq 0.15 (gold/3 rule) -> once broke, no more wins at all
+        if (equity >= (WIN_EQ_7TH if n >= 7 else WIN_BIG_EQ) and call <= gold * WIN_BIG_CALL_FRAC
+                and equity >= need * WIN_BIG_NEED):
             return "call", info + f" | win mode: eq >= {WIN_BIG_EQ} and call <= gold/{round(1 / WIN_BIG_CALL_FRAC)}"
-        if equity >= WIN_DRAW_EQ and call <= gold * WIN_DRAW_CALL_FRAC and is_draw(mine):
+        if (equity >= WIN_DRAW_EQ and call <= gold * WIN_DRAW_CALL_FRAC and is_draw(mine)
+                and equity >= need * WIN_DRAW_NEED):
             return "call", info + f" | win mode: draw, eq >= {WIN_DRAW_EQ} and call <= gold/{round(1 / WIN_DRAW_CALL_FRAC)}"
     if call and gold and call >= gold * 0.95:
         return "die", info + f" | call {call}만 ~ all-in (gold {gold}만)"
