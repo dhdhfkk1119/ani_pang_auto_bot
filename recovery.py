@@ -193,6 +193,15 @@ def is_lobby(img):
     """True only on the main lobby (never click the profile inside a room)."""
     t = cv2.imread(str(UI / "lobby_chip.png"))
     res = cv2.matchTemplate(img[400:880, 380:850], t, cv2.TM_CCOEFF_NORMED)
+    if res.max() >= 0.9:
+        return True
+    # out of gold the 1500만 chip is LOCKED and lobby_chip no longer matches, so
+    # mission / storage rewards were skipped exactly when they were needed
+    # (10-16 12:09). The game tab bar (7포커 로우바둑이 ...) is there either way.
+    t = cv2.imread(str(UI / "lobby_tabs.png"))
+    if t is None:
+        return False
+    res = cv2.matchTemplate(img[300:430, 650:1700], t, cv2.TM_CCOEFF_NORMED)
     return res.max() >= 0.9
 
 
