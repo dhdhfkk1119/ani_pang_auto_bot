@@ -132,6 +132,7 @@ WIN_EXPOSURE_FRAC = 0.3
 # "big bet" fold lost ~18.6 expected wins. Calls with eq >= 0.15 and call <= gold/3 were +9.3
 # wins and +51억 EV; draws below that cost more than they win, so draws get a smaller allowance.
 WIN_BIG_EQ = 0.15
+LOW_RAW_BOOST = 1.3        # pair/two pair with raw eq < 0.6 (see decide)
 FAVOURITE_EQ = 0.5         # calibrated eq at which money limits stop applying
 CHEAP_FRAC = 1 / 20        # calls up to this share of gold only need eq >= pot-odds need
 WIN_BIG_NEED = 1.0         # calls > gold/10 also need equity >= pot-odds need x this
@@ -229,6 +230,13 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
         equity = winprob(raw_eq, n, mine, opp_open, call, pot)
     if equity is None:
         equity = calibrate(raw_eq, n, made)
+    # showdown check 10-14~16 (7th card calls): the model is right in the middle
+    # but too low for pair / two pair with raw < 0.6 (pred 0.17/0.19, won
+    # 0.22/0.27) and for flush+ (pred 0.71, won 0.90)
+    if made in (hands.PAIR, hands.TWO_PAIR) and raw_eq < 0.6:
+        equity = min(raw_eq, equity * LOW_RAW_BOOST)
+    elif made >= hands.FLUSH:
+        equity = max(equity, raw_eq * 0.95)
     fair = 1.0 / (n_opp + 1)
     need = call / (pot + call) if (call and pot) else 0.8 * fair   # pot odds
     vis = ",".join(visible_summary(opp_open))
@@ -246,6 +254,10 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     # flush or better is never folded to a money limit (same hand: eq 0.60 vs HARD_EQ)
     if made >= hands.FLUSH and equity >= need:
         return "call", info + " | flush+ beats pot odds: ignore money limits"
+    # WIN MODE: a call that beats the pot odds is never folded by a money limit
+    # (10-16 12:18~14:20: 11-17 of 109 folds were like that at a small bankroll)
+    if WIN_MODE and call and equity >= need:
+        return "call", info + " | win mode: equity beats pot odds, ignore money limits"
     # favourite: more likely to win than not and beating the pot odds -> call any
     # size (10-15~16: 9 folds to big bets at eq >= 0.5 = 5.2 wins thrown away)
     if call and equity >= FAVOURITE_EQ and equity >= need:
