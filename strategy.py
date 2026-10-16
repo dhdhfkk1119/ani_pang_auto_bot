@@ -132,6 +132,7 @@ WIN_EXPOSURE_FRAC = 0.3
 # "big bet" fold lost ~18.6 expected wins. Calls with eq >= 0.15 and call <= gold/3 were +9.3
 # wins and +51억 EV; draws below that cost more than they win, so draws get a smaller allowance.
 WIN_BIG_EQ = 0.15
+CHEAP_FRAC = 1 / 20        # calls up to this share of gold only need eq >= pot-odds need
 WIN_BIG_NEED = 1.0         # calls > gold/10 also need equity >= pot-odds need x this
 WIN_DRAW_NEED = 0.8        # draws (implied odds) need equity >= need x this
 WIN_BIG_CALL_FRAC = 1 / 3
@@ -244,6 +245,10 @@ def decide(mine, n_opp, is_check, opp_open=(), call=None, gold=None, pot=None,
     # flush or better is never folded to a money limit (same hand: eq 0.60 vs HARD_EQ)
     if made >= hands.FLUSH and equity >= need:
         return "call", info + " | flush+ beats pot odds: ignore money limits"
+    # a cheap call that beats the pot odds is never folded by a hand-type rule
+    # (10-16: 77-99 two pair folded at the 7th card with need 0.02, eq 0.19)
+    if call and gold and call <= gold * CHEAP_FRAC and equity >= need:
+        return "call", info + f" | cheap call beats pot odds (<= gold/{round(1 / CHEAP_FRAC)})"
     if HARD_CALL_FRAC and call and gold and call >= gold * HARD_CALL_FRAC and equity < HARD_EQ:
         return "die", info + f" | hard cap: call {call}만 >= {HARD_CALL_FRAC:.2f} of gold {gold}만"
     if (HARD_EXPOSURE_FRAC and call and start_gold
